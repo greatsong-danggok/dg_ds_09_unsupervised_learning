@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 
 # -----------------------------
 # 페이지 기본 설정
@@ -74,31 +76,40 @@ if len(selected_features) < 2:
 st.info(f"전체 편수: {total_count}편 · 군집에 사용된 편수: {used_count}편")
 
 # -----------------------------
+# 묶음 수 선택 UI
+# -----------------------------
+st.subheader("2. 묶음 수 선택")
+
+n_clusters = st.slider("나눌 묶음 수를 고르세요", min_value=2, max_value=7, value=3, step=1)
+
+# 묶음 기호 (최대 7개까지)
+CLUSTER_SYMBOLS = ["㉮", "㉯", "㉰", "㉱", "㉲", "㉳", "㉴"]
+cluster_order_labels = CLUSTER_SYMBOLS[:n_clusters]
+
+# -----------------------------
 # 표준화 + KMeans
 # -----------------------------
 X = df[selected_features].values
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
 df["cluster_raw"] = kmeans.fit_predict(X_scaled)
 
-# 누적 관객 평균이 큰 순서로 군집 재정렬 -> ㉮㉯㉰ 부여
+# 누적 관객 평균이 큰 순서로 군집 재정렬 -> 기호 부여
 cluster_order = (
     df.groupby("cluster_raw")["total_audi"]
     .mean()
     .sort_values(ascending=False)
     .index.tolist()
 )
-label_map = {cluster_order[0]: "㉮", cluster_order[1]: "㉯", cluster_order[2]: "㉰"}
+label_map = {cluster_id: CLUSTER_SYMBOLS[i] for i, cluster_id in enumerate(cluster_order)}
 df["cluster_label"] = df["cluster_raw"].map(label_map)
-
-cluster_order_labels = ["㉮", "㉯", "㉰"]
 
 # -----------------------------
 # 2D 산점도
 # -----------------------------
-st.subheader("2. 2차원 산점도")
+st.subheader("3. 2차원 산점도")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -132,7 +143,7 @@ st.plotly_chart(fig2d, use_container_width=True)
 # -----------------------------
 # 3D 산점도
 # -----------------------------
-st.subheader("3. 3차원 산점도")
+st.subheader("4. 3차원 산점도")
 
 if len(selected_features) < 3:
     st.info("3차원 산점도를 그리려면 속성을 세 개 이상 선택해야 합니다.")
@@ -182,7 +193,7 @@ else:
 # -----------------------------
 # 군집별 통계표
 # -----------------------------
-st.subheader("4. 묶음별 편수와 평균값 (원래 단위)")
+st.subheader("5. 묶음별 편수와 평균값 (원래 단위)")
 
 summary_rows = []
 for label in cluster_order_labels:
@@ -208,9 +219,82 @@ st.dataframe(summary_df.style.format({
 # -----------------------------
 # 묶음별 대표 영화 (누적 관객 상위 5편)
 # -----------------------------
-st.subheader("5. 묶음별 누적 관객 상위 5편")
+st.subheader("6. 묶음별 누적 관객 상위 5편")
 
 for label in cluster_order_labels:
     sub = df[df["cluster_label"] == label].sort_values("total_audi", ascending=False)
     top5 = sub.head(5)["movieNm"].tolist()
     st.markdown(f"**{label} 묶음**: " + ", ".join(top5))
+
+# -----------------------------
+# 엘보우 방법 (관성 값 변화)
+# -----------------------------
+st.subheader("7. 묶음 수에 따른 관성 값 변화 (엘보우 방법)")
+
+k_range = list(range(1, 8))
+inertia_list = []
+
+for k in k_range:
+    km = KMeans(n_clusters=k, random_state=42, n_init=10)
+    km.fit(X_scaled)
+    inertia_list.append(km.inertia_)
+
+elbow_df = pd.DataFrame({"묶음 수": k_range, "관성 값": inertia_list})
+
+fig_elbow = go.Figure()
+fig_elbow.add_trace(
+    go.Scatter(
+        x=elbow_df["묶음 수"],
+        y=elbow_df["관성 값"],
+        mode="lines+markers",
+        name="관성 값",
+    )
+)
+# 현재 선택한 묶음 수 위치에 세로선 추가
+fig_elbow.add_vline(
+    x=n_clusters,
+    line_dash="dash",
+    line_color="red",
+    annotation_text=f"선택한 묶음 수: {n_clusters}",
+    annotation_position="top",
+)
+fig_elbow.update_layout(
+    xaxis_title="묶음 수",
+    yaxis_title="관성 값 (군집 내 거리 제곱 합)",
+    title="묶음 수에 따른 관성 값 변화",
+)
+st.plotly_chart(fig_elbow, use_container_width=True)
+
+# -----------------------------
+# 관성 값 감소폭 표
+# -----------------------------
+st.subheader("8. 묶음 수별 관성 값과 감소폭")
+
+decrease_list = [None]  # 첫 줄은 비교 대상 없음
+for i in range(1, len(inertia_list)):
+    decrease = inertia_list[i - 1] - inertia_list[i]
+    decrease_list.append(decrease)
+
+inertia_table = pd.DataFrame({
+    "묶음 수": k_range,
+    "관성 값": inertia_list,
+    "직전 대비 감소량": decrease_list,
+})
+
+st.dataframe(
+    inertia_table.style.format({
+        "관성 값": "{:.2f}",
+        "직전 대비 감소량": lambda v: "" if pd.isna(v) else f"{v:.2f}",
+    })
+)
+
+# -----------------------------
+# 실루엣 점수
+# -----------------------------
+st.subheader("9. 현재 선택한 묶음 수의 실루엣 점수")
+
+if n_clusters >= 2:
+    sil_score = silhouette_score(X_scaled, df["cluster_raw"])
+    st.info(f"묶음 수 {n_clusters}개일 때 실루엣 점수: {sil_score:.3f} (−1~1 사이, 1에 가까울수록 묶음이 뚜렷함)")
+else:
+    st.info("실루엣 점수는 묶음 수가 2개 이상일 때 계산할 수 있습니다.")
