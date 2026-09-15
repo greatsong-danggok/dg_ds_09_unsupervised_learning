@@ -11,7 +11,7 @@ st.title("⚽ 선수 유형 나누기")
 st.caption("포지션을 사용하지 않고, 고른 능력치가 비슷한 선수끼리 묶습니다.")
 
 DATA = ("https://raw.githubusercontent.com/greatsong/modudata/"
-        "main/data/eafc25_players.csv")
+        "main/data/eafc25_top100.csv")
 능력치 = {"pace": "속도", "shooting": "슈팅", "passing": "패스",
          "dribbling": "드리블", "defending": "수비", "physic": "몸싸움"}
 기호 = ["㉮", "㉯", "㉰", "㉱", "㉲", "㉳"]
@@ -31,7 +31,7 @@ def 포지션그룹(칸):
 @st.cache_data
 def load_data():
     df = pd.read_csv(DATA, encoding="utf-8")
-    df = df.dropna(subset=list(능력치) + ["name", "positions"]).reset_index(drop=True)
+    df = df.dropna(subset=list(능력치) + ["name_ko", "positions"]).reset_index(drop=True)
     df = df.rename(columns=능력치)
     df["포지션"] = df["positions"].map(포지션그룹)
     return df
@@ -66,7 +66,7 @@ st.subheader("묶음 지도 · 2차원")
 c1, c2 = st.columns(2)
 x축 = c1.selectbox("가로축", 고른항목, index=0)
 y축 = c2.selectbox("세로축", 고른항목, index=min(1, len(고른항목) - 1))
-fig = px.scatter(df, x=x축, y=y축, color="묶음", hover_name="name",
+fig = px.scatter(df, x=x축, y=y축, color="묶음", hover_name="name_ko",
                  category_orders={"묶음": 기호[:k]})
 fig.update_traces(marker=dict(size=7, opacity=0.75))
 fig.update_layout(height=460)
@@ -81,7 +81,7 @@ else:
     x3 = d1.selectbox("x축", 고른항목, index=0, key="x3")
     y3 = d2.selectbox("y축", 고른항목, index=1, key="y3")
     z3 = d3.selectbox("z축", 고른항목, index=2, key="z3")
-    fig3 = px.scatter_3d(df, x=x3, y=y3, z=z3, color="묶음", hover_name="name",
+    fig3 = px.scatter_3d(df, x=x3, y=y3, z=z3, color="묶음", hover_name="name_ko",
                          category_orders={"묶음": 기호[:k]})
     fig3.update_traces(marker=dict(size=2.5, opacity=0.8))
     fig3.update_layout(height=560, legend=dict(orientation="h"))
@@ -98,7 +98,7 @@ st.subheader("묶음마다 종합 능력치가 높은 다섯 명")
 for i, 이름 in enumerate(기호[:k]):
     묶음 = df[df["묶음"] == 이름].sort_values("overall", ascending=False).head(5)
     열[i].markdown(f"**{이름} 묶음 ({int((df['묶음'] == 이름).sum()):,}명)**")
-    열[i].dataframe(pd.DataFrame({"선수": 묶음["name"].to_numpy(),
+    열[i].dataframe(pd.DataFrame({"선수": 묶음["name_ko"].to_numpy(),
                                 "종합": 묶음["overall"].to_numpy()}),
                    width="stretch", hide_index=True)
 
